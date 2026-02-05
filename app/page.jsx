@@ -3161,7 +3161,7 @@ export default function HomePage() {
                       <div className="table-header-cell">基金名称</div>
                       <div className="table-header-cell text-right">净值/估值</div>
                       <div className="table-header-cell text-right">涨跌幅</div>
-                      <div className="table-header-cell text-right">更新时间</div>
+                      <div className="table-header-cell text-right">估值时间</div>
                       <div className="table-header-cell text-right">持仓金额</div>
                       <div className="table-header-cell text-right">当日盈亏</div>
                       <div className="table-header-cell text-right">持有收益</div>
