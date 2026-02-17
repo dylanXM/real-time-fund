@@ -4,9 +4,17 @@ import timezone from 'dayjs/plugin/timezone';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
-dayjs.tz.setDefault('Asia/Shanghai');
 
-const TZ = 'Asia/Shanghai';
+const DEFAULT_TZ = 'Asia/Shanghai';
+const getBrowserTimeZone = () => {
+  if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return tz || DEFAULT_TZ;
+  }
+  return DEFAULT_TZ;
+};
+const TZ = getBrowserTimeZone();
+dayjs.tz.setDefault(TZ);
 const nowInTz = () => dayjs().tz(TZ);
 const toTz = (input) => (input ? dayjs.tz(input, TZ) : nowInTz());
 

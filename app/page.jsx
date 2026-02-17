@@ -17,9 +17,17 @@ import packageJson from '../package.json';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
-dayjs.tz.setDefault('Asia/Shanghai');
 
-const TZ = 'Asia/Shanghai';
+const DEFAULT_TZ = 'Asia/Shanghai';
+const getBrowserTimeZone = () => {
+  if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return tz || DEFAULT_TZ;
+  }
+  return DEFAULT_TZ;
+};
+const TZ = getBrowserTimeZone();
+dayjs.tz.setDefault(TZ);
 const nowInTz = () => dayjs().tz(TZ);
 const toTz = (input) => (input ? dayjs.tz(input, TZ) : nowInTz());
 const formatDate = (input) => toTz(input).format('YYYY-MM-DD');
@@ -1914,6 +1922,14 @@ export default function HomePage() {
 
   // 用户认证状态
   const [user, setUser] = useState(null);
+  const [lastSyncTime, setLastSyncTime] = useState(null);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem('localUpdatedAt');
+    if (stored) {
+      setLastSyncTime(stored);
+    }
+  }, []);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
@@ -2477,7 +2493,9 @@ export default function HomePage() {
           if (prevSig === nextSig) return;
         }
         if (!skipSyncRef.current) {
-          window.localStorage.setItem('localUpdatedAt', nowInTz().toISOString());
+          const now = nowInTz().toISOString();
+          window.localStorage.setItem('localUpdatedAt', now);
+          setLastSyncTime(now);
         }
         scheduleSync();
       }
@@ -2486,6 +2504,9 @@ export default function HomePage() {
       setItem: (key, value) => {
         const prevValue = key === 'funds' ? window.localStorage.getItem(key) : null;
         window.localStorage.setItem(key, value);
+        if (key === 'localUpdatedAt') {
+          setLastSyncTime(value);
+        }
         triggerSync(key, prevValue, value);
       },
       removeItem: (key) => {
@@ -2496,7 +2517,9 @@ export default function HomePage() {
       clear: () => {
         window.localStorage.clear();
         if (!skipSyncRef.current) {
-          window.localStorage.setItem('localUpdatedAt', nowInTz().toISOString());
+          const now = nowInTz().toISOString();
+          window.localStorage.setItem('localUpdatedAt', now);
+          setLastSyncTime(now);
         }
         scheduleSync();
       }
@@ -2507,6 +2530,9 @@ export default function HomePage() {
     const keys = new Set(['funds', 'favorites', 'groups', 'collapsedCodes', 'refreshMs', 'holdings', 'pendingTrades', 'viewMode']);
     const onStorage = (e) => {
       if (!e.key) return;
+      if (e.key === 'localUpdatedAt') {
+        setLastSyncTime(e.newValue);
+      }
       if (!keys.has(e.key)) return;
       if (e.key === 'funds') {
         const prevSig = getFundCodesSignature(e.oldValue);
@@ -3978,6 +4004,11 @@ export default function HomePage() {
                         <div className="user-info">
                           <span className="user-email">{user.email}</span>
                           <span className="user-status">已登录</span>
+                          {lastSyncTime && (
+                            <span className="muted" style={{ fontSize: '10px', marginTop: 2 }}>
+                              同步于 {dayjs(lastSyncTime).format('MM-DD HH:mm')}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="user-menu-divider" />
