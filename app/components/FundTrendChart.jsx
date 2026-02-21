@@ -73,6 +73,7 @@ export default function FundTrendChart({ code, isExpanded, onToggleExpand }) {
     { label: '近3月', value: '3m' },
     { label: '近6月', value: '6m' },
     { label: '近1年', value: '1y' },
+    { label: '近3年', value: '3y'}
   ];
 
   const change = useMemo(() => {
