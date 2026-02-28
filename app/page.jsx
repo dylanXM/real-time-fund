@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { createWorker } from 'tesseract.js';
 import { createAvatar } from '@dicebear/core';
-import { glass } from '@dicebear/collection';
+import { identicon } from '@dicebear/collection';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
@@ -362,7 +362,7 @@ export default function HomePage() {
 
   const userAvatar = useMemo(() => {
     if (!user?.id) return '';
-    return createAvatar(glass, {
+    return createAvatar(identicon, {
       seed: user.id,
       size: 80
     }).toDataUri();
