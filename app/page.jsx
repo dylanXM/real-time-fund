@@ -5,16 +5,17 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { createWorker } from 'tesseract.js';
 import { createAvatar } from '@dicebear/core';
-import { glass } from '@dicebear/collection';
+import { identicon } from '@dicebear/collection';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
+import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import { isNumber, isString, isPlainObject } from 'lodash';
 import Announcement from "./components/Announcement";
 import { Stat } from "./components/Common";
 import FundTrendChart from "./components/FundTrendChart";
 import FundIntradayChart from "./components/FundIntradayChart";
-import { ChevronIcon, CloseIcon, ExitIcon, EyeIcon, EyeOffIcon, GridIcon, ListIcon, LoginIcon, LogoutIcon, PinIcon, PinOffIcon, PlusIcon, RefreshIcon, SettingsIcon, SortIcon, StarIcon, TrashIcon, UpdateIcon, UserIcon, CameraIcon } from "./components/Icons";
+import { ChevronIcon, CloseIcon, ExitIcon, EyeIcon, EyeOffIcon, GridIcon, ListIcon, LoginIcon, LogoutIcon, MoonIcon, PinIcon, PinOffIcon, PlusIcon, RefreshIcon, SettingsIcon, SortIcon, StarIcon, SunIcon, TrashIcon, UpdateIcon, UserIcon, CameraIcon } from "./components/Icons";
 import AddFundToGroupModal from "./components/AddFundToGroupModal";
 import AddResultModal from "./components/AddResultModal";
 import CloudConfigModal from "./components/CloudConfigModal";
@@ -36,6 +37,7 @@ import TradeModal from "./components/TradeModal";
 import TransactionHistoryModal from "./components/TransactionHistoryModal";
 import AddHistoryModal from "./components/AddHistoryModal";
 import UpdatePromptModal from "./components/UpdatePromptModal";
+import RefreshButton from "./components/RefreshButton";
 import WeChatModal from "./components/WeChatModal";
 import DcaModal from "./components/DcaModal";
 import githubImg from "./assets/github.svg";
@@ -43,9 +45,12 @@ import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { recordValuation, getAllValuationSeries, clearFund } from './lib/valuationTimeseries';
 import { fetchFundData, fetchLatestRelease, fetchShanghaiIndexDate, fetchSmartFundNetValue, searchFunds, extractFundNamesWithLLM } from './api/fund';
 import packageJson from '../package.json';
+import PcFundTable from './components/PcFundTable';
+import MobileFundTable from './components/MobileFundTable';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
+dayjs.extend(isSameOrAfter);
 
 const DEFAULT_TZ = 'Asia/Shanghai';
 const getBrowserTimeZone = () => {
@@ -304,14 +309,27 @@ export default function HomePage() {
   const isExplicitLoginRef = useRef(false);
 
   // 刷新频率状态
-  const [refreshMs, setRefreshMs] = useState(30000);
+  const [refreshMs, setRefreshMs] = useState(60000);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [tempSeconds, setTempSeconds] = useState(30);
+  const [tempSeconds, setTempSeconds] = useState(60);
+  const [containerWidth, setContainerWidth] = useState(1200);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem('customSettings');
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const w = parsed?.pcContainerWidth;
+      const num = Number(w);
+      if (Number.isFinite(num)) {
+        setContainerWidth(Math.min(2000, Math.max(600, num)));
+      }
+    } catch { }
+  }, []);
 
   // 全局刷新状态
   const [refreshing, setRefreshing] = useState(false);
-  // 刷新周期进度 0~1，用于环形进度条
-  const [refreshProgress, setRefreshProgress] = useState(0);
 
   // 收起/展开状态
   const [collapsedCodes, setCollapsedCodes] = useState(new Set());
@@ -360,7 +378,7 @@ export default function HomePage() {
 
   const userAvatar = useMemo(() => {
     if (!user?.id) return '';
-    return createAvatar(glass, {
+    return createAvatar(identicon, {
       seed: user.id,
       size: 80
     }).toDataUri();
@@ -389,6 +407,30 @@ export default function HomePage() {
   const filterBarRef = useRef(null);
   const [navbarHeight, setNavbarHeight] = useState(0);
   const [filterBarHeight, setFilterBarHeight] = useState(0);
+  // 主题初始固定为 dark，避免 SSR 与客户端首屏不一致导致 hydration 报错；真实偏好由 useLayoutEffect 在首帧前恢复
+  const [theme, setTheme] = useState('dark');
+  const [showThemeTransition, setShowThemeTransition] = useState(false);
+
+  const handleThemeToggle = useCallback(() => {
+    setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+    setShowThemeTransition(true);
+  }, []);
+
+  // 首帧前同步主题（与 layout 中脚本设置的 data-theme 一致），减少图标闪烁
+  useLayoutEffect(() => {
+    try {
+      const fromDom = document.documentElement.getAttribute('data-theme');
+      if (fromDom === 'light' || fromDom === 'dark') {
+        setTheme(fromDom);
+        return;
+      }
+      const fromStorage = localStorage.getItem('theme');
+      if (fromStorage === 'light' || fromStorage === 'dark') {
+        setTheme(fromStorage);
+        document.documentElement.setAttribute('data-theme', fromStorage);
+      }
+    } catch { }
+  }, []);
 
   useEffect(() => {
     const updateHeights = () => {
@@ -447,6 +489,7 @@ export default function HomePage() {
   const todayStr = formatDate();
 
   const [isMobile, setIsMobile] = useState(false);
+  const [hoveredPcRowCode, setHoveredPcRowCode] = useState(null); // PC 列表行悬浮高亮
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -559,7 +602,7 @@ export default function HomePage() {
   }, []);
 
   // 计算持仓收益
-  const getHoldingProfit = (fund, holding) => {
+  const getHoldingProfit = useCallback((fund, holding) => {
     if (!holding || !isNumber(holding.share)) return null;
 
     const hasTodayData = fund.jzrq === todayStr;
@@ -633,35 +676,148 @@ export default function HomePage() {
       profitToday,
       profitTotal
     };
-  };
+  }, [isTradingDay, todayStr]);
 
 
   // 过滤和排序后的基金列表
-  const displayFunds = funds
-    .filter(f => {
-      if (currentTab === 'all') return true;
-      if (currentTab === 'fav') return favorites.has(f.code);
-      const group = groups.find(g => g.id === currentTab);
-      return group ? group.codes.includes(f.code) : true;
-    })
-    .sort((a, b) => {
-      if (sortBy === 'yield') {
-        const valA = isNumber(a.estGszzl) ? a.estGszzl : (a.gszzl ?? a.zzl ?? 0);
-        const valB = isNumber(b.estGszzl) ? b.estGszzl : (b.gszzl ?? a.zzl ?? 0);
-        return sortOrder === 'asc' ? valA - valB : valB - valA;
+  const displayFunds = useMemo(
+    () => {
+      let filtered = funds.filter(f => {
+        if (currentTab === 'all') return true;
+        if (currentTab === 'fav') return favorites.has(f.code);
+        const group = groups.find(g => g.id === currentTab);
+        return group ? group.codes.includes(f.code) : true;
+      });
+
+      if (currentTab !== 'all' && currentTab !== 'fav' && sortBy === 'default') {
+        const group = groups.find(g => g.id === currentTab);
+        if (group && group.codes) {
+          const codeMap = new Map(group.codes.map((code, index) => [code, index]));
+          filtered.sort((a, b) => {
+            const indexA = codeMap.get(a.code) ?? Number.MAX_SAFE_INTEGER;
+            const indexB = codeMap.get(b.code) ?? Number.MAX_SAFE_INTEGER;
+            return indexA - indexB;
+          });
+        }
       }
-      if (sortBy === 'holding') {
-        const pa = getHoldingProfit(a, holdings[a.code]);
-        const pb = getHoldingProfit(b, holdings[b.code]);
-        const valA = pa?.profitTotal ?? Number.NEGATIVE_INFINITY;
-        const valB = pb?.profitTotal ?? Number.NEGATIVE_INFINITY;
-        return sortOrder === 'asc' ? valA - valB : valB - valA;
-      }
-      if (sortBy === 'name') {
-        return sortOrder === 'asc' ? a.name.localeCompare(b.name, 'zh-CN') : b.name.localeCompare(a.name, 'zh-CN');
-      }
-      return 0;
-    });
+
+      return filtered.sort((a, b) => {
+        if (sortBy === 'yield') {
+          const valA = isNumber(a.estGszzl) ? a.estGszzl : (a.gszzl ?? a.zzl ?? 0);
+          const valB = isNumber(b.estGszzl) ? b.estGszzl : (b.gszzl ?? a.zzl ?? 0);
+          return sortOrder === 'asc' ? valA - valB : valB - valA;
+        }
+        if (sortBy === 'holding') {
+          const pa = getHoldingProfit(a, holdings[a.code]);
+          const pb = getHoldingProfit(b, holdings[b.code]);
+          const valA = pa?.profitTotal ?? Number.NEGATIVE_INFINITY;
+          const valB = pb?.profitTotal ?? Number.NEGATIVE_INFINITY;
+          return sortOrder === 'asc' ? valA - valB : valB - valA;
+        }
+        if (sortBy === 'name') {
+          return sortOrder === 'asc' ? a.name.localeCompare(b.name, 'zh-CN') : b.name.localeCompare(a.name, 'zh-CN');
+        }
+        return 0;
+      });
+    },
+    [funds, currentTab, favorites, groups, sortBy, sortOrder, holdings, getHoldingProfit],
+  );
+
+  // PC 端表格数据（用于 PcFundTable）
+  const pcFundTableData = useMemo(
+    () =>
+      displayFunds.map((f) => {
+        const hasTodayData = f.jzrq === todayStr;
+        const latestNav = f.dwjz != null && f.dwjz !== '' ? (typeof f.dwjz === 'number' ? Number(f.dwjz).toFixed(4) : String(f.dwjz)) : '—';
+        const estimateNav = f.noValuation
+          ? '—'
+          : (f.estPricedCoverage > 0.05
+            ? (f.estGsz != null ? Number(f.estGsz).toFixed(4) : '—')
+            : (f.gsz != null ? (typeof f.gsz === 'number' ? Number(f.gsz).toFixed(4) : String(f.gsz)) : '—'));
+
+        const yesterdayChangePercent =
+          f.zzl != null && f.zzl !== ''
+            ? `${f.zzl > 0 ? '+' : ''}${Number(f.zzl).toFixed(2)}%`
+            : '—';
+        const yesterdayChangeValue =
+          f.zzl != null && f.zzl !== '' ? Number(f.zzl) : null;
+        const yesterdayDate = f.jzrq || '-';
+
+        const estimateChangePercent = f.noValuation
+          ? '—'
+          : (f.estPricedCoverage > 0.05
+            ? (f.estGszzl != null
+              ? `${f.estGszzl > 0 ? '+' : ''}${Number(f.estGszzl).toFixed(2)}%`
+              : '—')
+            : (isNumber(f.gszzl)
+              ? `${f.gszzl > 0 ? '+' : ''}${Number(f.gszzl).toFixed(2)}%`
+              : (f.gszzl ?? '—')));
+        const estimateChangeValue = f.noValuation
+          ? null
+          : (f.estPricedCoverage > 0.05
+            ? (isNumber(f.estGszzl) ? Number(f.estGszzl) : null)
+            : (isNumber(f.gszzl) ? Number(f.gszzl) : null));
+        const estimateTime = f.noValuation ? (f.jzrq || '-') : (f.gztime || f.time || '-');
+
+        const holding = holdings[f.code];
+        const profit = getHoldingProfit(f, holding);
+        const amount = profit ? profit.amount : null;
+        const holdingAmount =
+          amount == null ? '未设置' : `¥${amount.toFixed(2)}`;
+        const holdingAmountValue = amount;
+
+        const profitToday = profit ? profit.profitToday : null;
+        const todayProfit =
+          profitToday == null
+            ? ''
+            : `${profitToday > 0 ? '+' : profitToday < 0 ? '-' : ''}¥${Math.abs(profitToday).toFixed(2)}`;
+        const todayProfitValue = profitToday;
+
+        const total = profit ? profit.profitTotal : null;
+        const principal =
+          holding && isNumber(holding.cost) && isNumber(holding.share)
+            ? holding.cost * holding.share
+            : 0;
+        const todayProfitPercent =
+          profitToday != null && principal > 0
+            ? `${profitToday > 0 ? '+' : profitToday < 0 ? '-' : ''}${Math.abs((profitToday / principal) * 100).toFixed(2)}%`
+            : '';
+        const holdingProfit =
+          total == null
+            ? ''
+            : `${total > 0 ? '+' : total < 0 ? '-' : ''}¥${Math.abs(total).toFixed(2)}`;
+        const holdingProfitPercent =
+          total != null && principal > 0
+            ? `${total > 0 ? '+' : total < 0 ? '-' : ''}${Math.abs((total / principal) * 100).toFixed(2)}%`
+            : '';
+        const holdingProfitValue = total;
+
+        return {
+          rawFund: f,
+          code: f.code,
+          fundName: f.name,
+          isUpdated: f.jzrq === todayStr,
+          latestNav,
+          estimateNav,
+          yesterdayChangePercent,
+          yesterdayChangeValue,
+          yesterdayDate,
+          estimateChangePercent,
+          estimateChangeValue,
+          estimateChangeMuted: f.noValuation,
+          estimateTime,
+          holdingAmount,
+          holdingAmountValue,
+          todayProfit,
+          todayProfitPercent,
+          todayProfitValue,
+          holdingProfit,
+          holdingProfitPercent,
+          holdingProfitValue,
+        };
+      }),
+    [displayFunds, holdings, isTradingDay, todayStr, getHoldingProfit],
+  );
 
   // 自动滚动选中 Tab 到可视区域
   useEffect(() => {
@@ -824,24 +980,7 @@ export default function HomePage() {
 
   const handleAddHistory = (data) => {
     const fundCode = data.fundCode;
-    const current = holdings[fundCode] || { share: 0, cost: 0 };
-    const isBuy = data.type === 'buy';
-
-    let newShare, newCost;
-
-    if (isBuy) {
-      newShare = current.share + data.share;
-      // 加权平均成本
-      const buyCost = data.amount; // amount is total cost
-      newCost = (current.cost * current.share + buyCost) / newShare;
-    } else {
-      newShare = Math.max(0, current.share - data.share);
-      newCost = current.cost;
-      if (newShare === 0) newCost = 0;
-    }
-
-    handleSaveHolding(fundCode, { share: newShare, cost: newCost });
-
+    // 添加历史记录仅作补录展示，不修改真实持仓金额与份额
     setTransactions(prev => {
       const current = prev[fundCode] || [];
       const record = {
@@ -853,8 +992,9 @@ export default function HomePage() {
         date: data.date,
         isAfter3pm: false, // 历史记录通常不需要此标记，或者默认为 false
         isDca: false,
+        isHistoryOnly: true, // 仅记录，不参与持仓计算
         timestamp: data.timestamp || Date.now()
-      };
+      }
       // 按时间倒序排列
       const next = [record, ...current].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       const nextState = { ...prev, [fundCode]: next };
@@ -1321,8 +1461,12 @@ export default function HomePage() {
     try {
       const list = JSON.parse(value || '[]');
       if (!Array.isArray(list)) return '';
-      const codes = list.map((item) => item?.code).filter(Boolean);
-      return Array.from(new Set(codes)).sort().join('|');
+      const items = list.map((item) => {
+        if (!item?.code) return null;
+        // 加入 jzrq 和 dwjz 以检测净值更新
+        return `${item.code}:${item.jzrq || ''}:${item.dwjz || ''}`;
+      }).filter(Boolean);
+      return Array.from(new Set(items)).join('|');
     } catch (e) {
       return '';
     }
@@ -1364,7 +1508,7 @@ export default function HomePage() {
 
   const storageHelper = useMemo(() => {
     // 仅以下 key 参与云端同步；fundValuationTimeseries 不同步到云端（测试中功能，暂不同步）
-    const keys = new Set(['funds', 'favorites', 'groups', 'collapsedCodes', 'collapsedTrends', 'refreshMs', 'holdings', 'pendingTrades', 'transactions', 'viewMode', 'dcaPlans']);
+    const keys = new Set(['funds', 'favorites', 'groups', 'collapsedCodes', 'collapsedTrends', 'refreshMs', 'holdings', 'pendingTrades', 'transactions', 'viewMode', 'dcaPlans', 'customSettings']);
     const triggerSync = (key, prevValue, nextValue) => {
       if (keys.has(key)) {
         // 标记为脏数据
@@ -1411,7 +1555,7 @@ export default function HomePage() {
 
   useEffect(() => {
     // 仅以下 key 的变更会触发云端同步；fundValuationTimeseries 不在其中
-    const keys = new Set(['funds', 'favorites', 'groups', 'collapsedCodes', 'collapsedTrends', 'refreshMs', 'holdings', 'pendingTrades', 'viewMode', 'dcaPlans']);
+    const keys = new Set(['funds', 'favorites', 'groups', 'collapsedCodes', 'collapsedTrends', 'refreshMs', 'holdings', 'pendingTrades', 'viewMode', 'dcaPlans', 'customSettings']);
     const onStorage = (e) => {
       if (!e.key) return;
       if (e.key === 'localUpdatedAt') {
@@ -1431,6 +1575,18 @@ export default function HomePage() {
       if (syncDebounceRef.current) clearTimeout(syncDebounceRef.current);
     };
   }, [getFundCodesSignature, scheduleSync]);
+
+  const triggerCustomSettingsSync = useCallback(() => {
+    queueMicrotask(() => {
+      dirtyKeysRef.current.add('customSettings');
+      if (!skipSyncRef.current) {
+        const now = nowInTz().toISOString();
+        window.localStorage.setItem('localUpdatedAt', now);
+        setLastSyncTime(now);
+      }
+      scheduleSync();
+    });
+  }, [scheduleSync]);
 
   const applyViewMode = useCallback((mode) => {
     if (mode !== 'card' && mode !== 'list') return;
@@ -1595,14 +1751,43 @@ export default function HomePage() {
     setGroups(next);
     storageHelper.setItem('groups', JSON.stringify(next));
     if (currentTab === id) setCurrentTab('all');
+    try {
+      const raw = window.localStorage.getItem('customSettings');
+      const parsed = raw ? JSON.parse(raw) : {};
+      if (parsed && typeof parsed === 'object' && parsed[id] !== undefined) {
+        delete parsed[id];
+        window.localStorage.setItem('customSettings', JSON.stringify(parsed));
+        triggerCustomSettingsSync();
+      }
+    } catch { }
   };
 
   const handleUpdateGroups = (newGroups) => {
+    const removedIds = groups.filter((g) => !newGroups.find((ng) => ng.id === g.id)).map((g) => g.id);
     setGroups(newGroups);
     storageHelper.setItem('groups', JSON.stringify(newGroups));
     // 如果当前选中的分组被删除了，切换回“全部”
     if (currentTab !== 'all' && currentTab !== 'fav' && !newGroups.find(g => g.id === currentTab)) {
       setCurrentTab('all');
+    }
+    if (removedIds.length > 0) {
+      try {
+        const raw = window.localStorage.getItem('customSettings');
+        const parsed = raw ? JSON.parse(raw) : {};
+        if (parsed && typeof parsed === 'object') {
+          let changed = false;
+          removedIds.forEach((groupId) => {
+            if (parsed[groupId] !== undefined) {
+              delete parsed[groupId];
+              changed = true;
+            }
+          });
+          if (changed) {
+            window.localStorage.setItem('customSettings', JSON.stringify(parsed));
+            triggerCustomSettingsSync();
+          }
+        }
+      } catch { }
     }
   };
 
@@ -1652,6 +1837,60 @@ export default function HomePage() {
     storageHelper.setItem('groups', JSON.stringify(next));
   };
 
+  const handleReorder = (oldIndex, newIndex) => {
+    const movedItem = displayFunds[oldIndex];
+    const targetItem = displayFunds[newIndex];
+    if (!movedItem || !targetItem) return;
+
+    if (currentTab === 'all' || currentTab === 'fav') {
+      const newFunds = [...funds];
+      const fromIndex = newFunds.findIndex(f => f.code === movedItem.code);
+
+      if (fromIndex === -1) return;
+
+      // Remove moved item
+      const [removed] = newFunds.splice(fromIndex, 1);
+
+      // Find target index in the array (after removal)
+      const toIndex = newFunds.findIndex(f => f.code === targetItem.code);
+
+      if (toIndex === -1) {
+        // If target not found (should not happen), put it back
+        newFunds.splice(fromIndex, 0, removed);
+        return;
+      }
+
+      if (oldIndex < newIndex) {
+        // Moving down, insert after target
+        newFunds.splice(toIndex + 1, 0, removed);
+      } else {
+        // Moving up, insert before target
+        newFunds.splice(toIndex, 0, removed);
+      }
+
+      setFunds(newFunds);
+      storageHelper.setItem('funds', JSON.stringify(newFunds));
+    } else {
+      const groupIndex = groups.findIndex(g => g.id === currentTab);
+      if (groupIndex > -1) {
+        const group = groups[groupIndex];
+        const newCodes = [...group.codes];
+        const fromIndex = newCodes.indexOf(movedItem.code);
+        const toIndex = newCodes.indexOf(targetItem.code);
+
+        if (fromIndex !== -1 && toIndex !== -1) {
+          newCodes.splice(fromIndex, 1);
+          newCodes.splice(toIndex, 0, movedItem.code);
+
+          const newGroups = [...groups];
+          newGroups[groupIndex] = { ...group, codes: newCodes };
+          setGroups(newGroups);
+          storageHelper.setItem('groups', JSON.stringify(newGroups));
+        }
+      }
+    }
+  };
+
   // 按 code 去重，保留第一次出现的项，避免列表重复
   const dedupeByCode = (list) => {
     const seen = new Set();
@@ -1664,15 +1903,27 @@ export default function HomePage() {
   };
 
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('funds') || '[]');
-      if (Array.isArray(saved) && saved.length) {
-        const deduped = dedupeByCode(saved);
-        setFunds(deduped);
-        storageHelper.setItem('funds', JSON.stringify(deduped));
-        const codes = Array.from(new Set(deduped.map((f) => f.code)));
-        if (codes.length) refreshAll(codes);
-      }
+    let cancelled = false;
+    const init = async () => {
+      try {
+        // 已登录用户：不在此处调用 refreshAll，等 fetchCloudConfig 完成后由 applyCloudConfig 统一刷新
+        let shouldRefreshFromLocal = true;
+        if (isSupabaseConfigured) {
+          const { data, error } = await supabase.auth.getSession();
+          if (!cancelled && !error && data?.session?.user) {
+            shouldRefreshFromLocal = false;
+          }
+        }
+        if (cancelled) return;
+
+        const saved = JSON.parse(localStorage.getItem('funds') || '[]');
+        if (Array.isArray(saved) && saved.length) {
+          const deduped = dedupeByCode(saved);
+          setFunds(deduped);
+          storageHelper.setItem('funds', JSON.stringify(deduped));
+          const codes = Array.from(new Set(deduped.map((f) => f.code)));
+          if (codes.length && shouldRefreshFromLocal) refreshAll(codes);
+        }
       const savedMs = parseInt(localStorage.getItem('refreshMs') || '30000', 10);
       if (Number.isFinite(savedMs) && savedMs >= 5000) {
         setRefreshMs(savedMs);
@@ -1722,8 +1973,23 @@ export default function HomePage() {
       if (savedViewMode === 'card' || savedViewMode === 'list') {
         setViewMode(savedViewMode);
       }
+      const savedTheme = localStorage.getItem('theme');
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        setTheme(savedTheme);
+      }
+      } catch { }
+    };
+    init();
+    return () => { cancelled = true; };
+  }, [isSupabaseConfigured]);
+
+  // 主题同步到 document 并持久化
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      localStorage.setItem('theme', theme);
     } catch { }
-  }, []);
+  }, [theme]);
 
   // 初始化认证状态监听
   useEffect(() => {
@@ -1982,17 +2248,6 @@ export default function HomePage() {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [funds, refreshMs]);
-
-  // 刷新进度条：每 100ms 更新一次进度
-  useEffect(() => {
-    if (funds.length === 0 || refreshMs <= 0) return;
-    const t = setInterval(() => {
-      const elapsed = Date.now() - refreshCycleStartRef.current;
-      const p = Math.min(1, elapsed / refreshMs);
-      setRefreshProgress(p);
-    }, 100);
-    return () => clearInterval(t);
-  }, [funds.length, refreshMs]);
 
   const performSearch = async (val) => {
     if (!val.trim()) {
@@ -2344,10 +2599,28 @@ export default function HomePage() {
 
   const saveSettings = (e) => {
     e?.preventDefault?.();
-    const ms = Math.max(10, Number(tempSeconds)) * 1000;
+    const ms = Math.max(30, Number(tempSeconds)) * 1000;
     setRefreshMs(ms);
     storageHelper.setItem('refreshMs', String(ms));
+    const w = Math.min(2000, Math.max(600, Number(containerWidth) || 1200));
+    setContainerWidth(w);
+    try {
+      const raw = window.localStorage.getItem('customSettings');
+      const parsed = raw ? JSON.parse(raw) : {};
+      window.localStorage.setItem('customSettings', JSON.stringify({ ...parsed, pcContainerWidth: w }));
+      triggerCustomSettingsSync();
+    } catch { }
     setSettingsOpen(false);
+  };
+
+  const handleResetContainerWidth = () => {
+    setContainerWidth(1200);
+    try {
+      const raw = window.localStorage.getItem('customSettings');
+      const parsed = raw ? JSON.parse(raw) : {};
+      window.localStorage.setItem('customSettings', JSON.stringify({ ...parsed, pcContainerWidth: 1200 }));
+      triggerCustomSettingsSync();
+    } catch { }
   };
 
   const importFileRef = useRef(null);
@@ -2491,6 +2764,7 @@ export default function HomePage() {
       });
 
     const viewMode = payload.viewMode === 'list' ? 'list' : 'card';
+    const customSettings = isPlainObject(payload.customSettings) ? payload.customSettings : {};
 
     return JSON.stringify({
       funds: uniqueFundCodes,
@@ -2503,7 +2777,8 @@ export default function HomePage() {
       pendingTrades,
       transactions,
       dcaPlans,
-      viewMode
+      viewMode,
+      customSettings
     });
   }
 
@@ -2543,6 +2818,13 @@ export default function HomePage() {
       }
       if (!keys || keys.has('dcaPlans')) {
         all.dcaPlans = JSON.parse(localStorage.getItem('dcaPlans') || '{}');
+      }
+      if (!keys || keys.has('customSettings')) {
+        try {
+          all.customSettings = JSON.parse(localStorage.getItem('customSettings') || '{}');
+        } catch {
+          all.customSettings = {};
+        }
       }
 
       // 如果是全量收集（keys 为 null），进行完整的数据清洗和验证逻辑
@@ -2613,7 +2895,8 @@ export default function HomePage() {
           pendingTrades: all.pendingTrades,
           transactions: all.transactions,
           dcaPlans: cleanedDcaPlans,
-          viewMode: all.viewMode
+          viewMode: all.viewMode,
+          customSettings: isPlainObject(all.customSettings) ? all.customSettings : {}
         };
       }
 
@@ -2634,6 +2917,7 @@ export default function HomePage() {
         transactions: {},
         dcaPlans: {},
         viewMode: 'card',
+        customSettings: {},
         exportedAt: nowInTz().toISOString()
       };
     }
@@ -2694,6 +2978,13 @@ export default function HomePage() {
       }, {});
       setDcaPlans(nextDcaPlans);
       storageHelper.setItem('dcaPlans', JSON.stringify(nextDcaPlans));
+
+      if (isPlainObject(cloudData.customSettings)) {
+        try {
+          const merged = { ...JSON.parse(localStorage.getItem('customSettings') || '{}'), ...cloudData.customSettings };
+          window.localStorage.setItem('customSettings', JSON.stringify(merged));
+        } catch { }
+      }
 
       if (nextFunds.length) {
         const codes = Array.from(new Set(nextFunds.map((f) => f.code)));
@@ -3043,13 +3334,18 @@ export default function HomePage() {
       actionModal.open ||
       tradeModal.open ||
       dcaModal.open ||
+      addHistoryModal.open ||
+      historyModal.open ||
+      loginModalOpen ||
       !!clearConfirm ||
       donateOpen ||
       !!fundDeleteConfirm ||
       updateModalOpen ||
       weChatOpen ||
       scanModalOpen ||
-      scanConfirmModalOpen;
+      scanConfirmModalOpen ||
+      isScanning ||
+      isScanImporting;
 
     if (isAnyModalOpen) {
       document.body.style.overflow = 'hidden';
@@ -3073,13 +3369,19 @@ export default function HomePage() {
     holdingModal.open,
     actionModal.open,
     tradeModal.open,
+    dcaModal.open,
+    addHistoryModal.open,
+    historyModal.open,
+    loginModalOpen,
     clearConfirm,
     donateOpen,
     fundDeleteConfirm,
     updateModalOpen,
     weChatOpen,
     scanModalOpen,
-    scanConfirmModalOpen
+    scanConfirmModalOpen,
+    isScanning,
+    isScanImporting
   ]);
 
   useEffect(() => {
@@ -3098,7 +3400,25 @@ export default function HomePage() {
   };
 
   return (
-    <div className="container content">
+    <div className="container content" style={{ width: containerWidth }}>
+      <AnimatePresence>
+        {showThemeTransition && (
+          <motion.div
+            className="theme-transition-overlay"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <motion.div
+              className="theme-transition-circle"
+              initial={{ scale: 0, opacity: 0.5 }}
+              animate={{ scale: 2.5, opacity: 0 }}
+              transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
+              onAnimationComplete={() => setShowThemeTransition(false)}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
       <Announcement />
       <div className="navbar glass" ref={navbarRef}>
         {refreshing && <div className="loading-bar"></div>}
@@ -3282,7 +3602,9 @@ export default function HomePage() {
               <UpdateIcon width="14" height="14" />
             </div>
           )}
-          <Image unoptimized alt="项目Github地址" src={githubImg} style={{ width: '30px', height: '30px', cursor: 'pointer' }} onClick={() => window.open("https://github.com/hzm0321/real-time-fund")} />
+          <span className="github-icon-wrap">
+            <Image unoptimized alt="项目Github地址" src={githubImg} style={{ width: '30px', height: '30px', cursor: 'pointer' }} onClick={() => window.open("https://github.com/hzm0321/real-time-fund")} />
+          </span>
           {isMobile && (
             <button
               className="icon-button mobile-search-btn"
@@ -3296,22 +3618,13 @@ export default function HomePage() {
               </svg>
             </button>
           )}
-          <div
-            className="refresh-btn-wrap"
-            style={{ '--progress': refreshProgress }}
-            title={`刷新周期 ${Math.round(refreshMs / 1000)} 秒`}
-          >
-            <button
-              className="icon-button"
-              aria-label="立即刷新"
-              onClick={manualRefresh}
-              disabled={refreshing || funds.length === 0}
-              aria-busy={refreshing}
-              title="立即刷新"
-            >
-              <RefreshIcon className={refreshing ? 'spin' : ''} width="18" height="18" />
-            </button>
-          </div>
+          <RefreshButton
+            refreshMs={refreshMs}
+            manualRefresh={manualRefresh}
+            refreshing={refreshing}
+            fundsLength={funds.length}
+            refreshCycleStartRef={refreshCycleStartRef}
+          />
           {/*<button*/}
           {/*  className="icon-button"*/}
           {/*  aria-label="打开设置"*/}
@@ -3321,6 +3634,14 @@ export default function HomePage() {
           {/*>*/}
           {/*  <SettingsIcon width="18" height="18" />*/}
           {/*</button>*/}
+          <button
+            className="icon-button"
+            aria-label={theme === 'dark' ? '切换到亮色主题' : '切换到暗色主题'}
+            onClick={handleThemeToggle}
+            title={theme === 'dark' ? '亮色' : '暗色'}
+          >
+            {theme === 'dark' ? <SunIcon width="18" height="18" /> : <MoonIcon width="18" height="18" />}
+          </button>
           {/* 用户菜单 */}
           <div className="user-menu-container" ref={userMenuRef}>
             <button
@@ -3614,7 +3935,7 @@ export default function HomePage() {
                   style={{
                     width: '100%',
                     height: '48px',
-                    border: '2px dashed rgba(255,255,255,0.1)',
+                    border: '2px dashed var(--border)',
                     background: 'transparent',
                     borderRadius: '12px',
                     color: 'var(--muted)',
@@ -3634,7 +3955,7 @@ export default function HomePage() {
                     e.currentTarget.style.background = 'rgba(34, 211, 238, 0.05)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+                    e.currentTarget.style.borderColor = 'var(--border)';
                     e.currentTarget.style.color = 'var(--muted)';
                     e.currentTarget.style.background = 'transparent';
                   }}
@@ -3654,276 +3975,106 @@ export default function HomePage() {
                   className={viewMode === 'card' ? 'grid' : 'table-container glass'}
                 >
                   <div className={viewMode === 'card' ? 'grid col-12' : ''} style={viewMode === 'card' ? { gridColumn: 'span 12', gap: 16 } : {}}>
-                    {viewMode === 'list' && (
-                      <div className="table-header-row">
-                        <div className="table-header-cell">基金名称</div>
-                        <div className="table-header-cell text-right">净值/估值</div>
-                        <div className="table-header-cell text-right">涨跌幅</div>
-                        <div className="table-header-cell text-right">估值时间</div>
-                        <div className="table-header-cell text-right">持仓金额</div>
-                        <div className="table-header-cell text-right">当日收益</div>
-                        <div className="table-header-cell text-right">持有收益</div>
-                        <div className="table-header-cell text-center">操作</div>
-                      </div>
+                    {/* PC 列表：使用 PcFundTable + 右侧冻结操作列 */}
+                    {viewMode === 'list' && !isMobile && (
+                        <div className="table-pc-wrap">
+                          <div className="table-scroll-area">
+                            <div className="table-scroll-area-inner">
+                              <PcFundTable
+                                data={pcFundTableData}
+                                refreshing={refreshing}
+                                currentTab={currentTab}
+                                favorites={favorites}
+                                sortBy={sortBy}
+                                onReorder={handleReorder}
+                                onRemoveFund={(row) => {
+                                  if (refreshing) return;
+                                  if (!row || !row.code) return;
+                                  requestRemoveFund({ code: row.code, name: row.fundName });
+                                }}
+                                onToggleFavorite={(row) => {
+                                  if (!row || !row.code) return;
+                                  toggleFavorite(row.code);
+                                }}
+                                onRemoveFromGroup={(row) => {
+                                  if (!row || !row.code) return;
+                                  removeFundFromCurrentGroup(row.code);
+                                }}
+                                onHoldingAmountClick={(row, meta) => {
+                                  if (!row || !row.code) return;
+                                  const fund = row.rawFund || { code: row.code, name: row.fundName };
+                                  if (meta?.hasHolding) {
+                                    setActionModal({ open: true, fund });
+                                  } else {
+                                    setHoldingModal({ open: true, fund });
+                                  }
+                                }}
+                                onHoldingProfitClick={(row) => {
+                                  if (!row || !row.code) return;
+                                  if (row.holdingProfitValue == null) return;
+                                  setPercentModes(prev => ({ ...prev, [row.code]: !prev[row.code] }));
+                                }}
+                                onCustomSettingsChange={triggerCustomSettingsSync}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                    )}
+                    {viewMode === 'list' && isMobile && (
+                      <MobileFundTable
+                        data={pcFundTableData}
+                        refreshing={refreshing}
+                        currentTab={currentTab}
+                        favorites={favorites}
+                        sortBy={sortBy}
+                        onReorder={handleReorder}
+                        onRemoveFund={(row) => {
+                          if (refreshing) return;
+                          if (!row || !row.code) return;
+                          requestRemoveFund({ code: row.code, name: row.fundName });
+                        }}
+                        onToggleFavorite={(row) => {
+                          if (!row || !row.code) return;
+                          toggleFavorite(row.code);
+                        }}
+                        onRemoveFromGroup={(row) => {
+                          if (!row || !row.code) return;
+                          removeFundFromCurrentGroup(row.code);
+                        }}
+                        onHoldingAmountClick={(row, meta) => {
+                          if (!row || !row.code) return;
+                          const fund = row.rawFund || { code: row.code, name: row.fundName };
+                          if (meta?.hasHolding) {
+                            setActionModal({ open: true, fund });
+                          } else {
+                            setHoldingModal({ open: true, fund });
+                          }
+                        }}
+                        onHoldingProfitClick={(row) => {
+                          if (!row || !row.code) return;
+                          if (row.holdingProfitValue == null) return;
+                          setPercentModes((prev) => ({ ...prev, [row.code]: !prev[row.code] }));
+                        }}
+                        onCustomSettingsChange={triggerCustomSettingsSync}
+                      />
                     )}
                     <AnimatePresence mode="popLayout">
-                      {displayFunds.map((f) => (
+                      {viewMode === 'card' && displayFunds.map((f) => (
                         <motion.div
                           layout="position"
                           key={f.code}
-                          className={viewMode === 'card' ? 'col-6' : 'table-row-wrapper'}
+                          className="col-6"
                           initial={{ opacity: 0, scale: 0.95 }}
                           animate={{ opacity: 1, scale: 1 }}
                           exit={{ opacity: 0, scale: 0.95 }}
                           transition={{ duration: 0.2 }}
                           style={{ position: 'relative', overflow: 'hidden' }}
                         >
-                          {viewMode === 'list' && isMobile && (
-                            <div
-                              className="swipe-action-bg"
-                              onClick={(e) => {
-                                e.stopPropagation(); // 阻止冒泡，防止触发全局收起导致状态混乱
-                                if (refreshing) return;
-                                requestRemoveFund(f);
-                              }}
-                              style={{ pointerEvents: refreshing ? 'none' : 'auto', opacity: refreshing ? 0.6 : 1 }}
-                            >
-                              <TrashIcon width="18" height="18" />
-                              <span>删除</span>
-                            </div>
-                          )}
                           <motion.div
-                            className={viewMode === 'card' ? 'glass card' : 'table-row'}
-                            drag={viewMode === 'list' && isMobile ? "x" : false}
-                            dragConstraints={{ left: -80, right: 0 }}
-                            dragElastic={0.1}
-                            // 增加 dragDirectionLock 确保在垂直滚动时不会轻易触发水平拖拽
-                            dragDirectionLock={true}
-                            // 调整触发阈值，只有明显的水平拖拽意图才响应
-                            onDragStart={(event, info) => {
-                              // 如果水平移动距离小于垂直移动距离，或者水平速度很小，视为垂直滚动意图，不进行拖拽处理
-                              // framer-motion 的 dragDirectionLock 已经处理了大部分情况，但可以进一步微调体验
-                            }}
-                            // 如果当前行不是被选中的行，强制回到原点 (x: 0)
-                            animate={viewMode === 'list' && isMobile ? { x: swipedFundCode === f.code ? -80 : 0 } : undefined}
-                            onDragEnd={(e, { offset, velocity }) => {
-                              if (viewMode === 'list' && isMobile) {
-                                if (offset.x < -40) {
-                                  setSwipedFundCode(f.code);
-                                } else {
-                                  setSwipedFundCode(null);
-                                }
-                              }
-                            }}
-                            onClick={(e) => {
-                              // 阻止事件冒泡，避免触发全局的 click listener 导致立刻被收起
-                              // 只有在已经展开的情况下点击自身才需要阻止冒泡（或者根据需求调整）
-                              // 这里我们希望：点击任何地方都收起。
-                              // 如果点击的是当前行，且不是拖拽操作，上面的全局 listener 会处理收起。
-                              // 但为了防止点击行内容触发收起后又立即触发行的其他点击逻辑（如果有的话），
-                              // 可以在这里处理。不过当前需求是“点击其他区域收起”，
-                              // 实际上全局 listener 已经覆盖了“点击任何区域（包括其他行）收起”。
-                              // 唯一的问题是：点击当前行的“删除按钮”时，会先触发全局 click 导致收起，然后触发删除吗？
-                              // 删除按钮在底层，通常不会受影响，因为 React 事件和原生事件的顺序。
-                              // 但为了保险，删除按钮的 onClick 应该阻止冒泡。
-
-                              // 如果当前行已展开，点击行内容（非删除按钮）应该收起
-                              if (viewMode === 'list' && isMobile && swipedFundCode === f.code) {
-                                e.stopPropagation(); // 阻止冒泡，自己处理收起，避免触发全局再次处理
-                                setSwipedFundCode(null);
-                              }
-                            }}
-                            style={{
-                              background: viewMode === 'list' ? 'var(--bg)' : undefined,
-                              position: 'relative',
-                              zIndex: 1
-                            }}
+                            className="glass card"
+                            style={{ position: 'relative', zIndex: 1 }}
                           >
-                            {viewMode === 'list' ? (
-                              <>
-                                <div className="table-cell name-cell">
-                                  {currentTab !== 'all' && currentTab !== 'fav' ? (
-                                    <button
-                                      className="icon-button fav-button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        removeFundFromCurrentGroup(f.code);
-                                      }}
-                                      title="从当前分组移除"
-                                    >
-                                      <ExitIcon width="18" height="18" style={{ transform: 'rotate(180deg)' }} />
-                                    </button>
-                                  ) : (
-                                    <button
-                                      className={`icon-button fav-button ${favorites.has(f.code) ? 'active' : ''}`}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        toggleFavorite(f.code);
-                                      }}
-                                      title={favorites.has(f.code) ? "取消自选" : "添加自选"}
-                                    >
-                                      <StarIcon width="18" height="18" filled={favorites.has(f.code)} />
-                                    </button>
-                                  )}
-                                  <div className="title-text">
-                                    <span
-                                      className={`name-text ${f.jzrq === todayStr ? 'updated' : ''}`}
-                                      title={f.jzrq === todayStr ? "今日净值已更新" : ""}
-                                    >
-                                      {f.name}
-                                    </span>
-                                    <span className="muted code-text">#{f.code}</span>
-                                  </div>
-                                </div>
-                                {(() => {
-                                  const hasTodayData = f.jzrq === todayStr;
-                                  const shouldHideChange = isTradingDay && !hasTodayData;
-
-                                  if (!shouldHideChange) {
-                                    // 如果涨跌幅列显示（即非交易时段或今日净值已更新），则显示单位净值和真实涨跌幅
-                                    return (
-                                      <>
-                                        <div className="table-cell text-right value-cell">
-                                          <span style={{ fontWeight: 700 }}>{f.dwjz ?? '—'}</span>
-                                        </div>
-                                        <div className="table-cell text-right change-cell">
-                                          <span className={f.zzl > 0 ? 'up' : f.zzl < 0 ? 'down' : ''} style={{ fontWeight: 700 }}>
-                                            {f.zzl !== undefined ? `${f.zzl > 0 ? '+' : ''}${Number(f.zzl).toFixed(2)}%` : ''}
-                                          </span>
-                                        </div>
-                                      </>
-                                    );
-                                  } else {
-                                    // 否则显示估值净值和估值涨跌幅
-                                    // 如果是无估值数据的基金，直接显示净值数据
-                                    if (f.noValuation) {
-                                      return (
-                                        <>
-                                          <div className="table-cell text-right value-cell">
-                                            <span style={{ fontWeight: 700 }}>{f.dwjz ?? '—'}</span>
-                                          </div>
-                                          <div className="table-cell text-right change-cell">
-                                            <span className={f.zzl > 0 ? 'up' : f.zzl < 0 ? 'down' : ''} style={{ fontWeight: 700 }}>
-                                              {f.zzl !== undefined && f.zzl !== null ? `${f.zzl > 0 ? '+' : ''}${Number(f.zzl).toFixed(2)}%` : '—'}
-                                            </span>
-                                          </div>
-                                        </>
-                                      );
-                                    }
-                                    return (
-                                      <>
-                                        <div className="table-cell text-right value-cell">
-                                          <span style={{ fontWeight: 700 }}>{f.estPricedCoverage > 0.05 ? f.estGsz.toFixed(4) : (f.gsz ?? '—')}</span>
-                                        </div>
-                                        <div className="table-cell text-right change-cell">
-                                          <span className={f.estPricedCoverage > 0.05 ? (f.estGszzl > 0 ? 'up' : f.estGszzl < 0 ? 'down' : '') : (Number(f.gszzl) > 0 ? 'up' : Number(f.gszzl) < 0 ? 'down' : '')} style={{ fontWeight: 700 }}>
-                                            {f.estPricedCoverage > 0.05 ? `${f.estGszzl > 0 ? '+' : ''}${f.estGszzl.toFixed(2)}%` : (isNumber(f.gszzl) ? `${f.gszzl > 0 ? '+' : ''}${f.gszzl.toFixed(2)}%` : f.gszzl ?? '—')}
-                                          </span>
-                                        </div>
-                                      </>
-                                    );
-                                  }
-                                })()}
-                                <div className="table-cell text-right time-cell">
-                                  <span className="muted" style={{ fontSize: '12px' }}>{f.noValuation ? (f.jzrq || '-') : (f.gztime || f.time || '-')}</span>
-                                </div>
-                                {!isMobile && (() => {
-                                  const holding = holdings[f.code];
-                                  const profit = getHoldingProfit(f, holding);
-                                  const amount = profit ? profit.amount : null;
-                                  if (amount === null) {
-                                    return (
-                                      <div
-                                        className="table-cell text-right holding-amount-cell"
-                                        title="设置持仓"
-                                        onClick={(e) => { e.stopPropagation(); setHoldingModal({ open: true, fund: f }); }}
-                                      >
-                                        <span className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '12px', cursor: 'pointer' }}>
-                                          未设置 <SettingsIcon width="12" height="12" />
-                                        </span>
-                                      </div>
-                                    );
-                                  }
-                                  return (
-                                    <div
-                                      className="table-cell text-right holding-amount-cell"
-                                      title="点击设置持仓"
-                                      onClick={(e) => { e.stopPropagation(); setActionModal({ open: true, fund: f }); }}
-                                    >
-                                      <span style={{ fontWeight: 700, marginRight: 6 }}>¥{amount.toFixed(2)}</span>
-                                      <button
-                                        className="icon-button"
-                                        onClick={(e) => { e.stopPropagation(); setActionModal({ open: true, fund: f }); }}
-                                        title="编辑持仓"
-                                        style={{ border: 'none', width: '28px', height: '28px', marginLeft: -6 }}
-                                      >
-                                        <SettingsIcon width="14" height="14" />
-                                      </button>
-                                    </div>
-                                  );
-                                })()}
-                                {(() => {
-                                  const holding = holdings[f.code];
-                                  const profit = getHoldingProfit(f, holding);
-                                  const profitValue = profit ? profit.profitToday : null;
-                                  const hasProfit = profitValue !== null;
-
-                                  return (
-                                    <div className="table-cell text-right profit-cell">
-                                      <span
-                                        className={hasProfit ? (profitValue > 0 ? 'up' : profitValue < 0 ? 'down' : '') : 'muted'}
-                                        style={{ fontWeight: 700 }}
-                                      >
-                                        {hasProfit
-                                          ? `${profitValue > 0 ? '+' : profitValue < 0 ? '-' : ''}¥${Math.abs(profitValue).toFixed(2)}`
-                                          : ''}
-                                      </span>
-                                    </div>
-                                  );
-                                })()}
-                                {!isMobile && (() => {
-                                  const holding = holdings[f.code];
-                                  const profit = getHoldingProfit(f, holding);
-                                  const total = profit ? profit.profitTotal : null;
-                                  const principal = holding && holding.cost && holding.share ? holding.cost * holding.share : 0;
-                                  const asPercent = percentModes[f.code];
-                                  const hasTotal = total !== null;
-                                  const formatted = hasTotal
-                                    ? (asPercent && principal > 0
-                                      ? `${total > 0 ? '+' : total < 0 ? '-' : ''}${Math.abs((total / principal) * 100).toFixed(2)}%`
-                                      : `${total > 0 ? '+' : total < 0 ? '-' : ''}¥${Math.abs(total).toFixed(2)}`)
-                                    : '';
-                                  const cls = hasTotal ? (total > 0 ? 'up' : total < 0 ? 'down' : '') : 'muted';
-                                  return (
-                                    <div
-                                      className="table-cell text-right holding-cell"
-                                      title="点击切换金额/百分比"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (hasTotal) {
-                                          setPercentModes(prev => ({ ...prev, [f.code]: !prev[f.code] }));
-                                        }
-                                      }}
-                                      style={{ cursor: hasTotal ? 'pointer' : 'default' }}
-                                    >
-                                      <span className={cls} style={{ fontWeight: 700 }}>{formatted}</span>
-                                    </div>
-                                  );
-                                })()}
-                                <div className="table-cell text-center action-cell" style={{ gap: 4 }}>
-                                  <button
-                                    className="icon-button danger"
-                                    onClick={() => !refreshing && requestRemoveFund(f)}
-                                    title="删除"
-                                    disabled={refreshing}
-                                    style={{ width: '28px', height: '28px', opacity: refreshing ? 0.6 : 1, cursor: refreshing ? 'not-allowed' : 'pointer' }}
-                                  >
-                                    <TrashIcon width="14" height="14" />
-                                  </button>
-                                </div>
-                              </>
-                            ) : (
-                              <>
+                            <>
                                 <div className="row" style={{ marginBottom: 10 }}>
                                   <div className="title">
                                     {currentTab !== 'all' && currentTab !== 'fav' ? (
@@ -3951,12 +4102,15 @@ export default function HomePage() {
                                     )}
                                     <div className="title-text">
                                       <span
-                                        className={`name-text ${f.jzrq === todayStr ? 'updated' : ''}`}
+                                        className={`name-text`}
                                         title={f.jzrq === todayStr ? "今日净值已更新" : ""}
                                       >
                                         {f.name}
                                       </span>
-                                      <span className="muted">#{f.code}</span>
+                                      <span className="muted">
+                                        #{f.code}
+                                        {f.jzrq === todayStr && <span className="updated-indicator">✓</span>}
+                                      </span>
                                     </div>
                                   </div>
 
@@ -3993,20 +4147,25 @@ export default function HomePage() {
                                       {(() => {
                                         const hasTodayData = f.jzrq === todayStr;
                                         let isYesterdayChange = false;
-                                        if (!hasTodayData && isString(f.gztime) && isString(f.jzrq)) {
-                                          const gzDate = toTz(f.gztime).startOf('day');
+                                        let isPreviousTradingDay = false;
+                                        if (!hasTodayData && isString(f.jzrq)) {
+                                          const today = toTz(todayStr).startOf('day');
                                           const jzDate = toTz(f.jzrq).startOf('day');
-                                          if (gzDate.clone().subtract(1, 'day').isSame(jzDate, 'day')) {
+                                          const yesterday = today.clone().subtract(1, 'day');
+                                          if (jzDate.isSame(yesterday, 'day')) {
                                             isYesterdayChange = true;
+                                          } else if (jzDate.isBefore(yesterday, 'day')) {
+                                            isPreviousTradingDay = true;
                                           }
                                         }
-                                        const shouldHideChange = isTradingDay && !hasTodayData && !isYesterdayChange;
+                                        const shouldHideChange = isTradingDay && !hasTodayData && !isYesterdayChange && !isPreviousTradingDay;
 
                                         if (shouldHideChange) return null;
 
+                                        const changeLabel = hasTodayData ? '涨跌幅' : (isYesterdayChange ? '昨日涨跌幅' : (isPreviousTradingDay ? '上一交易日涨跌幅' : '涨跌幅'));
                                         return (
                                           <Stat
-                                            label={isYesterdayChange ? '昨日涨跌幅' : '涨跌幅'}
+                                            label={changeLabel}
                                             value={f.zzl !== undefined ? `${f.zzl > 0 ? '+' : ''}${Number(f.zzl).toFixed(2)}%` : ''}
                                             delta={f.zzl}
                                           />
@@ -4092,12 +4251,29 @@ export default function HomePage() {
                                     基于 {Math.round(f.estPricedCoverage * 100)}% 持仓估算
                                   </div>
                                 )}
-                                {Array.isArray(valuationSeries[f.code]) && valuationSeries[f.code].length >= 2 && (
-                                  <FundIntradayChart
-                                    series={valuationSeries[f.code]}
-                                    referenceNav={f.dwjz != null ? Number(f.dwjz) : undefined}
-                                  />
-                                )}
+                                {(() => {
+                                  const showIntraday = Array.isArray(valuationSeries[f.code]) && valuationSeries[f.code].length >= 2;
+                                  if (!showIntraday) return null;
+
+                                  // 如果今日日期大于估值日期，说明是历史估值，不显示分时图
+                                  if (f.gztime && toTz(todayStr).startOf('day').isAfter(toTz(f.gztime).startOf('day'))) {
+                                    return null;
+                                  }
+
+                                  // 如果 jzrq 等于估值日期或在此之前（意味着净值已经更新到了估值日期，或者是历史数据），则隐藏实时估值分时
+                                  if (f.jzrq && f.gztime && toTz(f.jzrq).startOf('day').isSameOrAfter(toTz(f.gztime).startOf('day'))) {
+                                    return null;
+                                  }
+
+                                  return (
+                                    <FundIntradayChart
+                                      key={`${f.code}-intraday-${theme}`}
+                                      series={valuationSeries[f.code]}
+                                      referenceNav={f.dwjz != null ? Number(f.dwjz) : undefined}
+                                      theme={theme}
+                                    />
+                                  );
+                                })()}
                                 <div
                                   style={{ marginBottom: 8, cursor: 'pointer', userSelect: 'none' }}
                                   className="title"
@@ -4151,13 +4327,14 @@ export default function HomePage() {
                                   )}
                                 </AnimatePresence>
                                 <FundTrendChart
+                                  key={`${f.code}-${theme}`}
                                   code={f.code}
                                   isExpanded={!collapsedTrends.has(f.code)}
                                   onToggleExpand={() => toggleTrendCollapse(f.code)}
                                   transactions={transactions[f.code] || []}
+                                  theme={theme}
                                 />
                               </>
-                            )}
                           </motion.div>
                         </motion.div>
                       ))}
@@ -4493,6 +4670,10 @@ export default function HomePage() {
           importFileRef={importFileRef}
           handleImportFileChange={handleImportFileChange}
           importMsg={importMsg}
+          isMobile={isMobile}
+          containerWidth={containerWidth}
+          setContainerWidth={setContainerWidth}
+          onResetContainerWidth={handleResetContainerWidth}
         />
       )}
 
@@ -4588,4 +4769,3 @@ export default function HomePage() {
     </div>
   );
 }
-
