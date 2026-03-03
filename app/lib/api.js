@@ -131,7 +131,9 @@ export const api = {
           maybeSingle: async () => {
             try {
               const res = await fetch(`${API_BASE}/fund/configs`);
+              console.log("🚀 ~ res:", res)
               const data = await res.json();
+              console.log("🚀 ~ data:", data)
               
               if (!res.ok) {
                 return { data: null, error: { message: data.error || '获取配置失败' } };
@@ -141,7 +143,7 @@ export const api = {
                 lastUpdatedAt = data.updatedAt;
               }
               
-              return { data: data.data ? { data: data.data, updated_at: data.updatedAt } : null, error: null };
+              return { data: data.data ? { data: data.data, id: new Date().getTime(), updated_at: data.updatedAt } : null, error: null };
             } catch (error) {
               return { data: null, error: { message: '网络错误' } };
             }

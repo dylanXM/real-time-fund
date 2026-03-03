@@ -5,18 +5,20 @@ import { query } from '../../../lib/db';
 export async function GET(request) {
   try {
     const token = request.cookies.get('auth_token')?.value;
+    console.log("🚀 ~ GET ~ token:", token)
     
     if (!token) {
       return NextResponse.json({ error: '未登录' }, { status: 401 });
     }
     
     const session = await verifySession(token);
+    console.log("🚀 ~ GET ~ session:", session)
     
     if (!session) {
       return NextResponse.json({ error: '会话已过期' }, { status: 401 });
     }
 
-    const results = await query(
+    const data = await query(
       `SELECT 
         funds, 
         \`groups\`, 
@@ -35,12 +37,9 @@ export async function GET(request) {
       WHERE user_id = ?`,
       [session.userId]
     );
-    
-    if (results.length === 0) {
-      return NextResponse.json({ data: null });
-    }
+    console.log("🚀 ~ GET ~ results:", data)
 
-    const row = results[0];
+    const row = data?.[0] || {};
     const configData = {
       funds: row.funds || [],
       groups: row.groups || [],
@@ -55,6 +54,7 @@ export async function GET(request) {
       customSettings: row.custom_settings || {},
       collapsedTrends: row.collapsed_trends || []
     };
+    console.log("🚀 ~ GET ~ configData:", configData)
     
     return NextResponse.json({ 
       data: configData,
