@@ -190,6 +190,7 @@ export const api = {
   },
   
   channel: (name) => {
+    
     const channelObj = {
       on: (event, config, callback) => {
         const cb = callback || config;
