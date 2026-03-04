@@ -191,11 +191,12 @@ export const api = {
   
   channel: (name) => {
     const channelObj = {
-      on: (event, callback) => {
+      on: (event, config, callback) => {
+        const cb = callback || config;
         if (!listeners.has(event)) {
           listeners.set(event, []);
         }
-        listeners.get(event).push(callback);
+        listeners.get(event).push(cb);
         return channelObj;
       },
       subscribe: (callback) => {
