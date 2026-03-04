@@ -799,6 +799,7 @@ export default function HomePage() {
           code: f.code,
           fundName: f.name,
           isUpdated: f.jzrq === todayStr,
+          hasDca: dcaPlans[f.code]?.enabled === true,
           latestNav,
           estimateNav,
           yesterdayChangePercent,
@@ -818,7 +819,7 @@ export default function HomePage() {
           holdingProfitValue,
         };
       }),
-    [displayFunds, holdings, isTradingDay, todayStr, getHoldingProfit],
+    [displayFunds, holdings, isTradingDay, todayStr, getHoldingProfit, dcaPlans],
   );
 
   // 自动滚动选中 Tab 到可视区域
@@ -4160,6 +4161,7 @@ export default function HomePage() {
                                       </span>
                                       <span className="muted">
                                         #{f.code}
+                                        {dcaPlans[f.code]?.enabled === true && <span className="dca-indicator">定</span>}
                                         {f.jzrq === todayStr && <span className="updated-indicator">✓</span>}
                                       </span>
                                     </div>
