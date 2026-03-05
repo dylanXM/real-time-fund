@@ -11,6 +11,13 @@ COPY . .
 RUN npx next build
 # ===== 运行阶段 =====
 FROM node:22-bullseye AS runner
+
+# 设置时区
+ENV TZ=Asia/Shanghai
+RUN apt-get update && apt-get install -y tzdata && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
