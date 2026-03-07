@@ -145,6 +145,28 @@ export const api = {
             } catch (error) {
               return { data: null, error: { message: '网络错误' } };
             }
+          },
+          single: async () => {
+            try {
+              const res = await fetch(`${API_BASE}/fund/configs`);
+              const data = await res.json();
+              
+              if (!res.ok) {
+                return { data: null, error: { message: data.error || '获取配置失败' } };
+              }
+              
+              if (data.updatedAt) {
+                lastUpdatedAt = data.updatedAt;
+              }
+              
+              if (!data.data) {
+                return { data: null, error: { message: '未找到配置' } };
+              }
+              
+              return { data: { data: data.data, id: new Date().getTime(), updated_at: data.updatedAt }, error: null };
+            } catch (error) {
+              return { data: null, error: { message: '网络错误' } };
+            }
           }
         })
       }),
@@ -153,7 +175,7 @@ export const api = {
           const res = await fetch(`${API_BASE}/fund/configs`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload.data)
+            body: JSON.stringify(payload.data || payload)
           });
           const data = await res.json();
           
@@ -236,6 +258,31 @@ export const api = {
     }
     
     return { data: null, error: { message: 'Unknown RPC function' } };
+  },
+  
+  functions: {
+    invoke: async (functionName, options = {}) => {
+      try {
+        const url = functionName.startsWith('check-data') 
+          ? `${API_BASE}/fund/check?${functionName.split('?')[1] || ''}`
+          : `${API_BASE}/functions/${functionName}`;
+        
+        const res = await fetch(url, {
+          method: options.method || 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: options.body ? JSON.stringify(options.body) : undefined
+        });
+        const data = await res.json();
+        
+        if (!res.ok) {
+          return { data: null, error: { message: data.error || '调用失败' } };
+        }
+        
+        return { data, error: null };
+      } catch (error) {
+        return { data: null, error: { message: '网络错误' } };
+      }
+    }
   }
 };
 
