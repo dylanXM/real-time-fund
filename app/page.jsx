@@ -183,7 +183,7 @@ export default function HomePage() {
   }, [sortBy, sortOrder, isSortLoaded]);
 
   // 视图模式
-  const [viewMode, setViewMode] = useState('card'); // card, list
+  const [viewMode, setViewMode] = useState('list'); // card, list
 
   // 用户认证状态
   const [user, setUser] = useState(null);
@@ -3437,7 +3437,7 @@ export default function HomePage() {
           </motion.div>
         )}
       </AnimatePresence>
-      <Announcement />
+      {/* <Announcement /> */}
       <div className="navbar glass" ref={navbarRef}>
         {refreshing && <div className="loading-bar"></div>}
         <div className={`brand ${(isSearchFocused || selectedFunds.length > 0) ? 'search-focused-sibling' : ''}`}>
@@ -3495,6 +3495,7 @@ export default function HomePage() {
               <circle cx="12" cy="12" r="10" stroke="var(--accent)" strokeWidth="2" />
               <path d="M5 14c2-4 7-6 14-5" stroke="var(--primary)" strokeWidth="2" />
             </svg>
+            <img src="./assets/icon.png" />
           </div>
           <span>优基库</span>
         </div>
@@ -3852,7 +3853,7 @@ export default function HomePage() {
             </div>
 
             <div className="sort-group" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div className="view-toggle" style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '2px' }}>
+              {/* <div className="view-toggle" style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '2px' }}>
                 <button
                   className={`icon-button ${viewMode === 'card' ? 'active' : ''}`}
                   onClick={() => { applyViewMode('card'); }}
@@ -3869,7 +3870,7 @@ export default function HomePage() {
                 >
                   <ListIcon width="16" height="16" />
                 </button>
-              </div>
+              </div> */}
 
               <div className="divider" style={{ width: '1px', height: '20px', background: 'var(--border)' }} />
 
