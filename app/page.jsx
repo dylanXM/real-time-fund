@@ -3478,7 +3478,7 @@ export default function HomePage() {
               <path d="m16 16-4-4-4 4" stroke="var(--accent)" />
             </svg>
             {/* 默认图标 */}
-            <svg
+            {/* <svg
               width="24"
               height="24"
               viewBox="0 0 24 24"
@@ -3494,7 +3494,7 @@ export default function HomePage() {
             >
               <circle cx="12" cy="12" r="10" stroke="var(--accent)" strokeWidth="2" />
               <path d="M5 14c2-4 7-6 14-5" stroke="var(--primary)" strokeWidth="2" />
-            </svg>
+            </svg> */}
             <img src="./assets/icon.png" />
           </div>
           <span>优基库</span>
