@@ -61,6 +61,7 @@ import WeChatModal from "./components/WeChatModal";
 import DcaModal from "./components/DcaModal";
 import githubImg from "./assets/github.svg";
 import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { toast as sonnerToast } from 'sonner';
 import { recordValuation, getAllValuationSeries, clearFund } from './lib/valuationTimeseries';
 import { loadHolidaysForYears, isTradingDay as isDateTradingDay } from './lib/tradingCalendar';
 import { parseFundTextWithLLM, fetchFundData, fetchLatestRelease, fetchShanghaiIndexDate, fetchSmartFundNetValue, searchFunds } from './api/fund';
@@ -659,7 +660,9 @@ export default function HomePage() {
           isUpdated: f.jzrq === todayStr,
           hasDca: dcaPlans[f.code]?.enabled === true,
           latestNav,
+          latestNavDate: yesterdayDate,
           estimateNav,
+          estimateNavDate: estimateTime,
           yesterdayChangePercent,
           yesterdayChangeValue,
           yesterdayDate,
@@ -2587,9 +2590,11 @@ export default function HomePage() {
     await refreshAll(codes);
   };
 
-  const saveSettings = (e) => {
+  const saveSettings = (e, secondsOverride) => {
     e?.preventDefault?.();
-    const ms = Math.max(30, Number(tempSeconds)) * 1000;
+    const seconds = secondsOverride ?? tempSeconds;
+    const ms = Math.max(30, Number(seconds)) * 1000;
+    setTempSeconds(Math.round(ms / 1000));
     setRefreshMs(ms);
     storageHelper.setItem('refreshMs', String(ms));
     const w = Math.min(2000, Math.max(600, Number(containerWidth) || 1200));
@@ -3069,9 +3074,6 @@ export default function HomePage() {
       const dataToSync = payload || collectLocalPayload(); // Fallback to full sync if no payload
       const now = nowInTz().toISOString();
 
-      let upsertData = null;
-      let updateError = null;
-
       if (isPartial) {
         // 增量更新：使用 RPC 调用
         const { error: rpcError } = await supabase.rpc('update_user_config_partial', {
@@ -3082,7 +3084,7 @@ export default function HomePage() {
           console.error('增量同步失败，尝试全量同步', rpcError);
           // RPC 失败回退到全量更新
           const fullPayload = collectLocalPayload();
-          const { data, error } = await supabase
+          const { error } = await supabase
             .from('user_configs')
             .upsert(
               {
@@ -3091,17 +3093,12 @@ export default function HomePage() {
                 updated_at: now
               },
               { onConflict: 'user_id' }
-            )
-            .select();
-          upsertData = data;
-          updateError = error;
-        } else {
-          // RPC 成功，模拟 upsertData 格式以便后续逻辑通过
-          upsertData = [{ id: 'rpc_success' }];
+            );
+          if (error) throw error;
         }
       } else {
         // 全量更新
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from('user_configs')
           .upsert(
             {
@@ -3110,15 +3107,8 @@ export default function HomePage() {
               updated_at: now
             },
             { onConflict: 'user_id' }
-          )
-          .select();
-        upsertData = data;
-        updateError = error;
-      }
-
-      if (updateError) throw updateError;
-      if (!upsertData || upsertData.length === 0) {
-        throw new Error('同步失败：未写入任何数据，请检查账号状态或重新登录');
+          );
+        if (error) throw error;
       }
 
       storageHelper.setItem('localUpdatedAt', now);
@@ -4210,6 +4200,7 @@ export default function HomePage() {
           <ConfirmModal
             title="确认登出"
             message="确定要退出当前账号吗？"
+            icon={<LogoutIcon width="20" height="20" className="shrink-0 text-[var(--danger)]" />}
             confirmText="确认登出"
             onConfirm={() => {
               setLogoutConfirmOpen(false);
