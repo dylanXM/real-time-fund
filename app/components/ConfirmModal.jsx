@@ -23,8 +23,9 @@ export default function ConfirmModal({
   return (
     <Dialog open onOpenChange={handleOpenChange}>
       <DialogContent
+        overlayClassName="!z-[1200]"
         showCloseButton={false}
-        className="max-w-[400px] flex flex-col gap-5 p-6"
+        className="!z-[1210] max-w-[400px] flex flex-col gap-5 p-6"
       >
         <DialogHeader className="flex flex-row items-center gap-3 text-left">
           <TrashIcon width="20" height="20" className="shrink-0 text-[var(--danger)]" />
