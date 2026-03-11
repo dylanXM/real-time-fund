@@ -185,6 +185,8 @@ export default function HomePage() {
 
   // 视图模式
   const [viewMode, setViewMode] = useState('list'); // card, list
+  // 全局隐藏金额状态（影响分组汇总、列表和卡片）
+  const [maskAmounts, setMaskAmounts] = useState(false);
 
   // 用户认证状态
   const [user, setUser] = useState(null);
@@ -2080,29 +2082,30 @@ export default function HomePage() {
     return () => subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (!isSupabaseConfigured || !user?.id) return;
-    const channel = supabase
-      .channel(`user-configs-${user.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'user_configs', filter: `user_id=eq.${user.id}` }, async (payload) => {
-        const incoming = payload?.new?.data;
-        if (!isPlainObject(incoming)) return;
-        const incomingComparable = getComparablePayload(incoming);
-        if (!incomingComparable || incomingComparable === lastSyncedRef.current) return;
-        await applyCloudConfig(incoming, payload.new.updated_at);
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'user_configs', filter: `user_id=eq.${user.id}` }, async (payload) => {
-        const incoming = payload?.new?.data;
-        if (!isPlainObject(incoming)) return;
-        const incomingComparable = getComparablePayload(incoming);
-        if (!incomingComparable || incomingComparable === lastSyncedRef.current) return;
-        await applyCloudConfig(incoming, payload.new.updated_at);
-      })
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user?.id]);
+  // 实时同步
+  // useEffect(() => {
+  //   if (!isSupabaseConfigured || !user?.id) return;
+  //   const channel = supabase
+  //     .channel(`user-configs-${user.id}`)
+  //     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'user_configs', filter: `user_id=eq.${user.id}` }, async (payload) => {
+  //       const incoming = payload?.new?.data;
+  //       if (!isPlainObject(incoming)) return;
+  //       const incomingComparable = getComparablePayload(incoming);
+  //       if (!incomingComparable || incomingComparable === lastSyncedRef.current) return;
+  //       await applyCloudConfig(incoming, payload.new.updated_at);
+  //     })
+  //     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'user_configs', filter: `user_id=eq.${user.id}` }, async (payload) => {
+  //       const incoming = payload?.new?.data;
+  //       if (!isPlainObject(incoming)) return;
+  //       const incomingComparable = getComparablePayload(incoming);
+  //       if (!incomingComparable || incomingComparable === lastSyncedRef.current) return;
+  //       await applyCloudConfig(incoming, payload.new.updated_at);
+  //     })
+  //     .subscribe();
+  //   return () => {
+  //     supabase.removeChannel(channel);
+  //   };
+  // }, [user?.id]);
 
   const handleSendOtp = async (e) => {
     e.preventDefault();
@@ -3466,7 +3469,7 @@ export default function HomePage() {
               <path d="M12 12v9" stroke="var(--accent)" />
               <path d="m16 16-4-4-4 4" stroke="var(--accent)" />
             </svg>
-            <svg t="1773153853499" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="12577" width="32" height="32"><path d="M333.248 85.312c-155.328 0-247.936 92.608-247.936 247.936v357.12c0 155.712 92.608 248.32 247.936 248.32h357.12c155.264 0 247.872-92.608 247.872-247.936V333.248c0.448-155.328-92.16-247.936-247.488-247.936H333.248z m304.64 466.816a72.832 72.832 0 0 1-49.92 28.16c-20.096 2.56-39.68-3.008-55.488-15.36l-78.08-61.44a9.344 9.344 0 0 0-8.128-2.176c-1.664 0-4.672 0.896-7.232 4.288L337.472 637.44a32.128 32.128 0 0 1-25.152 12.352 31.36 31.36 0 0 1-19.648-6.784 32 32 0 0 1-5.952-44.8l101.568-131.84a75.008 75.008 0 0 1 105.344-13.248l78.08 61.44c3.008 2.56 6.016 2.56 8.128 2.112 1.728 0 4.672-0.832 7.232-4.224l98.56-127.168a31.552 31.552 0 0 1 44.8-5.568c14.08 11.52 16.64 31.616 6.016 45.248l-98.56 127.168z" fill="#435EBE" p-id="12578"></path></svg>
+            <svg t="1773153853499" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="12577" width="32" height="32"><path d="M333.248 85.312c-155.328 0-247.936 92.608-247.936 247.936v357.12c0 155.712 92.608 248.32 247.936 248.32h357.12c155.264 0 247.872-92.608 247.872-247.936V333.248c0.448-155.328-92.16-247.936-247.488-247.936H333.248z m304.64 466.816a72.832 72.832 0 0 1-49.92 28.16c-20.096 2.56-39.68-3.008-55.488-15.36l-78.08-61.44a9.344 9.344 0 0 0-8.128-2.176c-1.664 0-4.672 0.896-7.232 4.288L337.472 637.44a32.128 32.128 0 0 1-25.152 12.352 31.36 31.36 0 0 1-19.648-6.784 32 32 0 0 1-5.952-44.8l101.568-131.84a75.008 75.008 0 0 1 105.344-13.248l78.08 61.44c3.008 2.56 6.016 2.56 8.128 2.112 1.728 0 4.672-0.832 7.232-4.224l98.56-127.168a31.552 31.552 0 0 1 44.8-5.568c14.08 11.52 16.64 31.616 6.016 45.248l-98.56 127.168z" fill="#435EBE" p-id="12578"></path></svg>
           </div>
           <span>优基库</span>
         </div>
@@ -3697,6 +3700,26 @@ export default function HomePage() {
                       <div className="user-menu-divider" />
                       <button
                         className="user-menu-item"
+                        disabled={isSyncing}
+                        onClick={async () => {
+                          setUserMenuOpen(false);
+                          if (user?.id) await syncUserConfig(user.id);
+                        }}
+                        title="手动同步配置到云端"
+                      >
+                        {isSyncing ? (
+                          <span className="loading-spinner" style={{ width: 16, height: 16, border: '2px solid var(--muted)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+                        ) : (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                            <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" stroke="var(--primary)" />
+                            <path d="M12 12v9" stroke="var(--accent)" />
+                            <path d="m16 16-4-4-4 4" stroke="var(--accent)" />
+                          </svg>
+                        )}
+                        <span>{isSyncing ? '同步中...' : '同步'}</span>
+                      </button>
+                      <button
+                        className="user-menu-item"
                         onClick={() => {
                           setUserMenuOpen(false);
                           setSettingsOpen(true);
@@ -3907,6 +3930,8 @@ export default function HomePage() {
                   groupName={getGroupName()}
                   getProfit={getHoldingProfit}
                   stickyTop={navbarHeight + filterBarHeight + (isMobile ? -14 : 0)}
+                  masked={maskAmounts}
+                  onToggleMasked={() => setMaskAmounts((v) => !v)}
                 />
 
               {currentTab !== 'all' && currentTab !== 'fav' && (
@@ -4001,6 +4026,7 @@ export default function HomePage() {
                                 onCustomSettingsChange={triggerCustomSettingsSync}
                                 closeDialogRef={fundDetailDialogCloseRef}
                                 blockDialogClose={!!fundDeleteConfirm}
+                                masked={maskAmounts}
                                 getFundCardProps={(row) => {
                                   const fund = row?.rawFund || (row ? { code: row.code, name: row.fundName } : null);
                                   if (!fund) return {};
@@ -4029,6 +4055,7 @@ export default function HomePage() {
                                       setPercentModes((prev) => ({ ...prev, [code]: !prev[code] })),
                                     onToggleCollapse: toggleCollapse,
                                     onToggleTrendCollapse: toggleTrendCollapse,
+                                    masked: maskAmounts,
                                     layoutMode: 'drawer',
                                   };
                                 }}
@@ -4104,9 +4131,11 @@ export default function HomePage() {
                               setPercentModes((prev) => ({ ...prev, [code]: !prev[code] })),
                             onToggleCollapse: toggleCollapse,
                             onToggleTrendCollapse: toggleTrendCollapse,
+                            masked: maskAmounts,
                             layoutMode: 'drawer',
                           };
                         }}
+                        masked={maskAmounts}
                       />
                     )}
                     <AnimatePresence mode="popLayout">
@@ -4147,6 +4176,7 @@ export default function HomePage() {
                               }
                               onToggleCollapse={toggleCollapse}
                               onToggleTrendCollapse={toggleTrendCollapse}
+                              masked={maskAmounts}
                             />
                         </motion.div>
                       ))}
@@ -4270,6 +4300,7 @@ export default function HomePage() {
           <AddFundToGroupModal
             allFunds={funds}
             currentGroupCodes={groups.find(g => g.id === currentTab)?.codes || []}
+            holdings={holdings}
             onClose={() => setAddFundToGroupOpen(false)}
             onAdd={handleAddFundsToGroup}
           />
