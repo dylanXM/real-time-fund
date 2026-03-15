@@ -3238,7 +3238,7 @@ export default function HomePage() {
                 updated_at: now
               },
               { onConflict: 'user_id' }
-            );
+            ).select();
           if (error) throw error;
         }
       } else {
@@ -3252,7 +3252,7 @@ export default function HomePage() {
               updated_at: now
             },
             { onConflict: 'user_id' }
-          );
+          ).select();
         if (error) throw error;
       }
 
